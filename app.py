@@ -31,7 +31,7 @@ from pydantic import BaseModel
 MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash"]
 
 DEFAULT_CITY = "Prague"  # місто, яке відкривається одразу
-DEFAULT_LANG = "uk"  # мова інтерфейсу за замовчуванням: "uk", "cs" або "en"
+DEFAULT_LANG = "cs"  # мова інтерфейсу й відповідей за замовчуванням: "cs", "uk" або "en"
 NUM_VARIANTS = 3  # скільки варіантів відповіді показувати
 MAX_EXAMPLES = 5  # скільки улюблених відповідей давати моделі як приклади
 MEMORY_FILE = "feedback.json"  # локальний файл пам'яті (якщо Gist не налаштований)
@@ -53,6 +53,7 @@ STYLES = {
 TEXTS = {
     "uk": {
         "lang_name": "Українська",
+        "ai_lang": "Ukrainian",
         "title": "Погодний ШІ-бот",
         "subtitle": "Живі дані Open-Meteo + Gemini. Бот вчиться на тому, які відповіді ти обираєш.",
         "city": "Місто",
@@ -96,6 +97,7 @@ TEXTS = {
     },
     "cs": {
         "lang_name": "Čeština",
+        "ai_lang": "Czech",
         "title": "AI bot o počasí",
         "subtitle": "Živá data z Open-Meteo + Gemini. Bot se učí z toho, které odpovědi vybíráš.",
         "city": "Město",
@@ -139,6 +141,7 @@ TEXTS = {
     },
     "en": {
         "lang_name": "English",
+        "ai_lang": "English",
         "title": "Weather AI bot",
         "subtitle": "Live Open-Meteo data + Gemini. The bot learns from the answers you pick.",
         "city": "City",
@@ -471,16 +474,18 @@ def build_prompt(place, weather_text, styles, memory, history, lang):
         or "(no examples yet)"
     )
     history_lines = "\n".join(f"{m['role'].upper()}: {m['content']}" for m in history[-6:]) or "(new conversation)"
+    language = TEXTS[lang]["ai_lang"]  # мова відповідей = мова, вибрана в бічній панелі
     return f"""You are a friendly weather assistant for {place}.
 Answer ONLY from the live weather data below. Never invent numbers.
 If the data does not cover the question (another city, a date beyond the forecast, and so on), say so honestly.
-Use °C, mm and km/h. Write in the same language as the user's question (if unsure, use {TEXTS[lang]['lang_name']}).
+Use °C, mm and km/h. Always write every answer in {language}, even if the question is in another language.
 
 Write exactly {len(styles)} different answers, one per style, in this order:
 {style_lines}
 
 Users of this app picked these answers as the best ones in the past.
-Learn from their tone, length and structure, but take numbers only from the current data:
+Learn from their tone, length and structure, but take numbers only from the current data,
+and keep writing in {language} even if an example is in another language:
 {example_lines}
 
 Recent conversation:
@@ -556,7 +561,7 @@ def choose_answer(index):
 with st.sidebar:
     languages = list(TEXTS)
     lang = st.selectbox(
-        "🌐 Мова / Jazyk / Language",
+        "🌐 Jazyk / Мова / Language",
         languages,
         index=languages.index(DEFAULT_LANG),
         format_func=lambda code: TEXTS[code]["lang_name"],
