@@ -1,0 +1,5 @@
+streamlit>=1.66
+google-genai>=2.32
+requests
+pandas
+pydantic
