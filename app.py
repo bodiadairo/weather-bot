@@ -1,14 +1,14 @@
 """
-Погодний ШІ-бот, який навчається на виборі користувачів.
+Weather AI bot that learns from the answers its users pick.
 
-Як це працює:
-1. Бот бере живі дані про погоду з Open-Meteo (безкоштовно, без ключа).
-2. Gemini пише кілька варіантів відповіді в різних стилях.
-3. Користувач обирає найкращий варіант.
-4. Вибір зберігається в пам'ять. Наступного разу бот частіше пише в тих стилях,
-   які обирають люди, а найкращі відповіді показує моделі як приклади.
+How it works:
+1. The bot fetches live weather data from Open-Meteo (free, no API key needed).
+2. Gemini writes several answers in different styles.
+3. The user picks the best one.
+4. The pick is saved to memory. Next time the bot uses the styles people pick
+   more often and shows the model the most liked answers as examples.
 
-Запуск на своєму комп'ютері:  streamlit run app.py
+Run it on your own computer:  streamlit run app.py
 """
 
 import json
@@ -24,20 +24,22 @@ from pydantic import BaseModel
 
 
 # =====================================================================
-# НАЛАШТУВАННЯ (це можна спокійно змінювати)
+# SETTINGS (safe to change)
 # =====================================================================
 
-# Моделі Gemini: перша основна, друга запасна (якщо перша недоступна або перевантажена).
+# Gemini models: the first one is the main model, the second one is a backup
+# (used when the first one is unavailable or overloaded).
 MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash"]
 
-DEFAULT_CITY = "Prague"  # місто, яке відкривається одразу
-DEFAULT_LANG = "cs"  # мова інтерфейсу й відповідей за замовчуванням: "cs", "uk" або "en"
-NUM_VARIANTS = 3  # скільки варіантів відповіді показувати
-MAX_EXAMPLES = 5  # скільки улюблених відповідей давати моделі як приклади
-MEMORY_FILE = "feedback.json"  # локальний файл пам'яті (якщо Gist не налаштований)
-GIST_FILENAME = "feedback.json"  # назва файлу всередині GitHub Gist
+DEFAULT_CITY = "Prague"  # city shown when the app opens
+DEFAULT_LANG = "cs"  # default language of the interface and the answers
+LANGUAGES = ["cs", "en"]  # languages offered in the sidebar
+NUM_VARIANTS = 3  # how many answer options to show
+MAX_EXAMPLES = 5  # how many liked answers the model gets as examples
+MEMORY_FILE = "feedback.json"  # local memory file (used when no Gist is set up)
+GIST_FILENAME = "feedback.json"  # file name inside the GitHub Gist
 
-# Стилі відповідей. Підказки для ШІ англійською: так модель розуміє їх найточніше.
+# Answer styles. These are instructions for the AI, so they stay in English.
 STYLES = {
     "short": "Very short: one or two sentences with only the key numbers.",
     "detailed": "Detailed: temperature range, feels-like temperature, precipitation and wind, "
@@ -49,52 +51,8 @@ STYLES = {
     "bullets": "A short bullet list (3-5 bullets) grouped by time of day or by weather parameter.",
 }
 
-# Тексти інтерфейсу трьома мовами.
+# Interface texts in Czech and English.
 TEXTS = {
-    "uk": {
-        "lang_name": "Українська",
-        "ai_lang": "Ukrainian",
-        "title": "Погодний ШІ-бот",
-        "subtitle": "Живі дані Open-Meteo + Gemini. Бот вчиться на тому, які відповіді ти обираєш.",
-        "city": "Місто",
-        "now_in": "Зараз",
-        "temp": "Температура",
-        "feels": "Відчувається як",
-        "wind": "Вітер",
-        "precip": "Опади",
-        "chart": "Температура на найближчі 24 години",
-        "hint": "Наприклад: «Чи потрібна завтра парасолька?»",
-        "ask": "Спитай про погоду…",
-        "pick_first": "Спочатку обери найкращу відповідь вище",
-        "choose": "Яка відповідь найкраща? Твій вибір навчає бота.",
-        "choose_btn": "Обрати",
-        "thinking": "Пишу кілька варіантів відповіді…",
-        "learning": "Чого навчився бот",
-        "votes": "Усього виборів",
-        "won": "обрали {wins} з {shown}",
-        "examples": "Відповіді, які сподобалися найбільше",
-        "no_examples": "Поки що немає. Постав питання й обери відповідь!",
-        "memory_gist": "Пам'ять: GitHub Gist (зберігається назавжди)",
-        "memory_local": "Пам'ять: локальний файл (може скинутися після перезапуску)",
-        "memory_error": "Не вдалося прочитати пам'ять",
-        "admin": "Для автора",
-        "password": "Пароль",
-        "reset": "Скинути навчання",
-        "reset_done": "Навчання скинуто",
-        "no_key": "Не знайдено ключ GEMINI_API_KEY. Додай його в Secrets (див. інструкцію).",
-        "city_not_found": "Не вдалося знайти місто «{city}». Спробуй іншу назву.",
-        "weather_error": "Не вдалося отримати погоду. Спробуй трохи пізніше.",
-        "ai_error": "ШІ не зміг відповісти",
-        "rate_limit": "Забагато запитів до ШІ. Зачекай хвилину й спробуй ще раз.",
-        "save_error": "Не вдалося зберегти вибір",
-        "styles": {
-            "short": "Коротко",
-            "detailed": "Детально",
-            "advice": "Порада",
-            "friendly": "Дружньо",
-            "bullets": "Списком",
-        },
-    },
     "cs": {
         "lang_name": "Čeština",
         "ai_lang": "Czech",
@@ -185,7 +143,7 @@ TEXTS = {
     },
 }
 
-# Коди погоди WMO, які повертає Open-Meteo: код -> (емодзі, опис для ШІ).
+# WMO weather codes returned by Open-Meteo: code -> (emoji, description for the AI).
 WEATHER_CODES = {
     0: ("☀️", "clear sky"),
     1: ("🌤️", "mainly clear"),
@@ -219,12 +177,12 @@ WEATHER_CODES = {
 
 
 # =====================================================================
-# ДОПОМІЖНІ ФУНКЦІЇ
+# HELPERS
 # =====================================================================
 
 
 def get_secret(name):
-    """Читає секрет зі Streamlit Secrets. Якщо його немає, повертає None замість помилки."""
+    """Reads a value from Streamlit Secrets. Returns None instead of an error when it's missing."""
     try:
         return st.secrets[name]
     except Exception:
@@ -232,28 +190,28 @@ def get_secret(name):
 
 
 def describe(code):
-    """Повертає (емодзі, опис) для коду погоди."""
+    """Returns (emoji, description) for a weather code."""
     return WEATHER_CODES.get(code, ("🌡️", "unknown"))
 
 
 def fmt(value, unit=""):
-    """Акуратно показує число, навіть якщо даних немає."""
+    """Formats a number neatly, even when the value is missing."""
     return "n/a" if value is None else f"{value}{unit}"
 
 
 def error_status(error):
-    """Дістає HTTP-код помилки (наприклад, 429 = забагато запитів)."""
+    """Gets the HTTP status code of an error (for example, 429 = too many requests)."""
     return getattr(error, "status_code", None) or getattr(error, "code", None)
 
 
 # =====================================================================
-# ПОГОДА (Open-Meteo, без ключа)
+# WEATHER (Open-Meteo, no API key needed)
 # =====================================================================
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
 def find_city(name, lang):
-    """Знаходить координати міста через безкоштовний геокодер Open-Meteo."""
+    """Finds a city's coordinates with the free Open-Meteo geocoder."""
     response = requests.get(
         "https://geocoding-api.open-meteo.com/v1/search",
         params={"name": name, "count": 1, "language": lang, "format": "json"},
@@ -273,9 +231,9 @@ def find_city(name, lang):
     }
 
 
-@st.cache_data(ttl=600, show_spinner=False)  # погода оновлюється раз на 10 хвилин
+@st.cache_data(ttl=600, show_spinner=False)  # the weather is refreshed every 10 minutes
 def get_weather(lat, lon, timezone):
-    """Завантажує живу погоду: зараз, по годинах і по днях (учора + 7 днів уперед)."""
+    """Loads live weather: right now, hourly and daily (yesterday + 7 days ahead)."""
     params = {
         "latitude": lat,
         "longitude": lon,
@@ -295,8 +253,8 @@ def get_weather(lat, lon, timezone):
 
 
 def first_hour_index(weather):
-    """Знаходить у погодинному прогнозі поточну годину."""
-    current_hour = weather["current"]["time"][:13]  # наприклад "2026-10-22T11"
+    """Finds the current hour in the hourly forecast."""
+    current_hour = weather["current"]["time"][:13]  # for example "2026-10-22T11"
     for i, time in enumerate(weather["hourly"]["time"]):
         if time[:13] >= current_hour:
             return i
@@ -304,7 +262,7 @@ def first_hour_index(weather):
 
 
 def weather_to_text(weather, place):
-    """Перетворює дані з API на компактний текст, який зрозуміє ШІ."""
+    """Turns the API data into compact text that the AI can read."""
     cur, day, hour = weather["current"], weather["daily"], weather["hourly"]
     now = datetime.fromisoformat(cur["time"])
     lines = [
@@ -344,17 +302,17 @@ def weather_to_text(weather, place):
 
 
 # =====================================================================
-# ПАМ'ЯТЬ БОТА (GitHub Gist або локальний файл)
+# BOT MEMORY (GitHub Gist or a local file)
 # =====================================================================
 
 
 def gist_enabled():
-    """Gist використовується, якщо в Secrets є і токен, і ID gist-а."""
+    """The Gist is used when Secrets contain both the token and the Gist ID."""
     return bool(get_secret("GITHUB_TOKEN") and get_secret("GIST_ID"))
 
 
 def gist_request(method, **kwargs):
-    """Запит до GitHub API для нашого gist-а."""
+    """Sends a request to the GitHub API for our Gist."""
     response = requests.request(
         method,
         f"https://api.github.com/gists/{get_secret('GIST_ID')}",
@@ -370,17 +328,18 @@ def gist_request(method, **kwargs):
 
 
 def empty_memory():
+    """Memory with no picks yet."""
     return {"styles": {}, "examples": []}
 
 
 def memory_source():
-    """Звідки зараз читається пам'ять (потрібно, щоб кеш не плутав gist і файл)."""
+    """Where the memory is read from (so the cache never mixes up the Gist and the file)."""
     return f"gist:{get_secret('GIST_ID')}" if gist_enabled() else f"file:{MEMORY_FILE}"
 
 
 @st.cache_data(ttl=30, show_spinner=False)
 def load_memory(source):
-    """Читає пам'ять: скільки разів кожен стиль показували й обирали, та улюблені відповіді."""
+    """Reads the memory: how often each style was shown and picked, plus the liked answers."""
     if source.startswith("gist:"):
         files = gist_request("GET").json().get("files", {})
         text = (files.get(GIST_FILENAME) or {}).get("content") or "{}"
@@ -399,40 +358,40 @@ def load_memory(source):
 
 
 def save_memory(data):
-    """Зберігає пам'ять туди ж, звідки її читаємо."""
+    """Saves the memory to the same place it is read from."""
     text = json.dumps(data, ensure_ascii=False, indent=2)
     if gist_enabled():
         gist_request("PATCH", json={"files": {GIST_FILENAME: {"content": text}}})
     else:
         with open(MEMORY_FILE, "w", encoding="utf-8") as file:
             file.write(text)
-    load_memory.clear()  # щоб усі одразу побачили нову статистику
+    load_memory.clear()  # so everyone sees the new statistics right away
 
 
 # =====================================================================
-# НАВЧАННЯ НА ВИБОРІ КОРИСТУВАЧІВ
+# LEARNING FROM USERS' PICKS
 # =====================================================================
 
 
 def style_score(memory, style):
-    """Частка виборів стилю. +1 і +NUM_VARIANTS згладжують старт:
-    новий стиль має шанс 1 з NUM_VARIANTS, а не нуль."""
+    """Share of picks for a style. The +1 and +NUM_VARIANTS smooth the start:
+    a new style gets a 1 in NUM_VARIANTS chance instead of zero."""
     stats = memory["styles"].get(style, {})
     return (stats.get("wins", 0) + 1) / (stats.get("shown", 0) + NUM_VARIANTS)
 
 
 def pick_styles(memory):
-    """Обирає стилі для нових відповідей:
-    найкращі за статистикою (використання знань) + один випадковий (дослідження)."""
+    """Chooses the styles for new answers:
+    the best ones so far (exploitation) + one random style (exploration)."""
     count = min(NUM_VARIANTS, len(STYLES))
     ranked = sorted(STYLES, key=lambda s: (style_score(memory, s), random.random()), reverse=True)
     chosen = ranked[: count - 1] + [random.choice(ranked[count - 1 :])]
-    random.shuffle(chosen)  # перемішуємо, щоб люди не обирали просто перший варіант
+    random.shuffle(chosen)  # shuffle so people don't just pick the first option
     return chosen
 
 
 def record_choice(memory, answers, chosen_index, question):
-    """Записує вибір: усім показаним стилям +1 показ, обраному ще +1 перемога."""
+    """Records a pick: every shown style gets +1 shown, the picked one also gets +1 win."""
     for answer in answers:
         stats = memory["styles"].setdefault(answer["style"], {})
         stats["shown"] = stats.get("shown", 0) + 1
@@ -447,12 +406,12 @@ def record_choice(memory, answers, chosen_index, question):
             "time": datetime.now().isoformat(timespec="minutes"),
         }
     )
-    memory["examples"] = memory["examples"][-50:]  # зберігаємо тільки 50 останніх
+    memory["examples"] = memory["examples"][-50:]  # keep only the last 50
     return memory
 
 
 # =====================================================================
-# ШІ (Gemini)
+# AI (Gemini)
 # =====================================================================
 
 
@@ -466,7 +425,7 @@ class Answers(BaseModel):
 
 
 def build_prompt(place, weather_text, styles, memory, history, lang):
-    """Складає інструкцію для ШІ: правила, стилі, приклади улюблених відповідей і дані."""
+    """Builds the instructions for the AI: rules, styles, liked examples and the weather data."""
     style_lines = "\n".join(f"{i + 1}. [{s}] {STYLES[s]}" for i, s in enumerate(styles))
     examples = memory["examples"][-MAX_EXAMPLES:]
     example_lines = (
@@ -474,7 +433,7 @@ def build_prompt(place, weather_text, styles, memory, history, lang):
         or "(no examples yet)"
     )
     history_lines = "\n".join(f"{m['role'].upper()}: {m['content']}" for m in history[-6:]) or "(new conversation)"
-    language = TEXTS[lang]["ai_lang"]  # мова відповідей = мова, вибрана в бічній панелі
+    language = TEXTS[lang]["ai_lang"]  # answer language = the language selected in the sidebar
     return f"""You are a friendly weather assistant for {place}.
 Answer ONLY from the live weather data below. Never invent numbers.
 If the data does not cover the question (another city, a date beyond the forecast, and so on), say so honestly.
@@ -496,7 +455,7 @@ LIVE WEATHER DATA (Open-Meteo):
 
 
 def ask_gemini(api_key, prompt, question, styles):
-    """Просить Gemini написати відповіді у вигляді JSON. Якщо модель недоступна, пробує запасну."""
+    """Asks Gemini for the answers as JSON. If a model is unavailable, tries the backup model."""
     client = genai.Client(api_key=api_key)
     schema = Answers.model_json_schema()
     schema["properties"]["answers"]["minItems"] = len(styles)
@@ -510,7 +469,7 @@ def ask_gemini(api_key, prompt, question, styles):
                 input=question,
                 response_format={"type": "text", "mime_type": "application/json", "schema": schema},
                 generation_config={"thinking_level": "low"},
-                store=False,  # не зберігати розмову на серверах Google
+                store=False,  # don't store the conversation on Google's servers
             )
             result = Answers.model_validate_json(interaction.output_text or "")
             answers = [
@@ -523,47 +482,49 @@ def ask_gemini(api_key, prompt, question, styles):
             last_error = RuntimeError("empty answer")
         except Exception as error:
             last_error = error
-            if error_status(error) in (401, 403):  # проблема з ключем: інша модель не допоможе
+            if error_status(error) in (401, 403):  # a problem with the key: another model won't help
                 raise
     raise last_error
 
 
 # =====================================================================
-# ІНТЕРФЕЙС
+# INTERFACE
 # =====================================================================
 
 st.set_page_config(page_title="Weather AI bot", page_icon="🌦️")
 
 if "messages" not in st.session_state:
-    st.session_state.messages = []  # історія чату
-    st.session_state.pending = None  # варіанти відповіді, які чекають на вибір
-    st.session_state.place = None  # поточне місто
-    st.session_state.flash = None  # коротке повідомлення після дії
+    st.session_state.messages = []  # chat history
+    st.session_state.pending = None  # answer options waiting for a pick
+    st.session_state.place = None  # current city
+    st.session_state.flash = None  # short message shown after an action
 
 
 def choose_answer(index):
-    """Спрацьовує, коли користувач натискає «Обрати» біля варіанта."""
+    """Runs when the user clicks the pick button next to an answer option."""
     pending = st.session_state.pending
     if not pending:
         return
     try:
-        load_memory.clear()  # беремо найсвіжішу пам'ять, щоб не затерти чужі голоси
+        load_memory.clear()  # read the freshest memory so other people's picks aren't overwritten
         memory = record_choice(load_memory(memory_source()), pending["answers"], index, pending["question"])
         save_memory(memory)
     except Exception as error:
-        st.session_state.flash = ("error", f"{TEXTS[st.session_state.lang]['save_error']}: {error}")
+        texts = TEXTS.get(st.session_state.get("lang"), TEXTS[DEFAULT_LANG])
+        st.session_state.flash = ("error", f"{texts['save_error']}: {error}")
     chosen = pending["answers"][index]
     st.session_state.messages.append({"role": "assistant", "content": chosen["text"], "style": chosen["style"]})
     st.session_state.pending = None
 
 
-# ---------- Бічна панель: мова й місто ----------
+# ---------- Sidebar: language and city ----------
 with st.sidebar:
-    languages = list(TEXTS)
+    if st.session_state.get("lang") not in LANGUAGES:  # an old browser tab may remember a removed language
+        st.session_state.pop("lang", None)
     lang = st.selectbox(
-        "🌐 Jazyk / Мова / Language",
-        languages,
-        index=languages.index(DEFAULT_LANG),
+        "🌐 Jazyk / Language",
+        LANGUAGES,
+        index=LANGUAGES.index(DEFAULT_LANG),
         format_func=lambda code: TEXTS[code]["lang_name"],
         key="lang",
     )
@@ -578,7 +539,7 @@ if st.session_state.flash:
     (st.error if kind == "error" else st.success)(text)
     st.session_state.flash = None
 
-# ---------- Погода ----------
+# ---------- Weather ----------
 try:
     place = find_city(city, lang)
     if place is None:
@@ -589,7 +550,7 @@ except requests.RequestException:
     st.error(T["weather_error"])
     st.stop()
 
-if st.session_state.place != place["label"]:  # нове місто, отже нова розмова
+if st.session_state.place != place["label"]:  # a new city means a new conversation
     st.session_state.place = place["label"]
     st.session_state.messages = []
     st.session_state.pending = None
@@ -612,7 +573,7 @@ with st.expander(T["chart"]):
     )
     st.line_chart(chart, x="time", y="temp", x_label="", y_label="°C", height=220)
 
-# ---------- Пам'ять і бічна панель зі статистикою ----------
+# ---------- Memory and learning statistics in the sidebar ----------
 memory_error = None
 try:
     memory = load_memory(memory_source())
@@ -654,7 +615,7 @@ with st.sidebar:
                     st.session_state.flash = ("error", f"{T['save_error']}: {error}")
                 st.rerun()
 
-# ---------- Чат ----------
+# ---------- Chat ----------
 api_key = get_secret("GEMINI_API_KEY")
 if not api_key:
     st.error(T["no_key"])
@@ -704,7 +665,7 @@ if question:
                 )
                 answers = ask_gemini(api_key, prompt, question, styles)
             except Exception as error:
-                st.session_state.messages.pop()  # прибираємо питання, щоб його можна було поставити ще раз
+                st.session_state.messages.pop()  # remove the question so it can be asked again
                 st.error(T["rate_limit"] if error_status(error) == 429 else f"{T['ai_error']}: {error}")
                 st.stop()
     st.session_state.pending = {"id": uuid.uuid4().hex[:8], "question": question, "answers": answers}
